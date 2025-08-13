@@ -11,7 +11,7 @@ variable "image_tag" {
 variable "services" {
   description = "List of services to deploy"
   type        = list(string)
-  default     = ["frontend", "catalogue", "reccommendation", "voting"]
+  default     = ["frontend", "catalogue", "recommendation", "voting"]
 }
 
 variable "services_ports" {
@@ -20,7 +20,7 @@ variable "services_ports" {
   default = {
     frontend  = { port = 3000 }
     catalogue = { port = 5000 }
-    reccommendation     = { port = 8080 }
+    recommendation     = { port = 8080 }
     voting    = { port = 8081 }
   }
 }

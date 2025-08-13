@@ -30,8 +30,8 @@ services:
     networks:
       - craftista
 
-  reccommendation:
-    image: my/craftista-reccommendation:dev
+  recommendation:
+    image: my/craftista-recommendation:dev
     build:
       context: ./recommendation
     ports:
