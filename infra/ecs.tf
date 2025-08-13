@@ -105,6 +105,7 @@ resource "aws_ecs_task_definition" "frontend" {
 }
 
 resource "aws_ecs_task_definition" "catalogue" {
+  depends_on               = [aws_ecs_task_definition.frontend]
   family                   = "catalogue-task"
   cpu                      = "256"
   memory                   = "512"
@@ -121,6 +122,7 @@ resource "aws_ecs_task_definition" "catalogue" {
 }
 
 resource "aws_ecs_task_definition" "recommendation" {
+  depends_on               = [aws_ecs_task_definition.catalogue]
   family                   = "recommendation-task"
   cpu                      = "256"
   memory                   = "512"
@@ -137,6 +139,7 @@ resource "aws_ecs_task_definition" "recommendation" {
 }
 
 resource "aws_ecs_task_definition" "voting" {
+  depends_on               = [aws_ecs_task_definition.recommendation]
   family                   = "voting-task"
   cpu                      = "256"
   memory                   = "512"
