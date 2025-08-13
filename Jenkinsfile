@@ -30,15 +30,17 @@ pipeline {
         stage('Build and Push Docker Images') {
             steps {
                 script {
-                    for (service in SERVICES) {
-                        def imageName = "${ECR_REPO_URI}/${service}:${BUILD_NUMBER}"
-                        echo "Building Docker image for ${service}..."
-                        sh "docker build -t ${imageName} ./${service}"
+                    env.SERVICES.split(',').each { service ->
+                        def trimmed = service.trim()
+                        def imageName = "${ECR_REPO_URI}/${trimmed}:${BUILD_NUMBER}"
+                        echo "Building Docker image for ${trimmed}..."
+                        sh "docker build -t ${imageName} ./${trimmed}"
                         sh "docker push ${imageName}"
                     }
                 }
             }
         }
+
 
         stage('Deploy with Terraform') {
             steps {
