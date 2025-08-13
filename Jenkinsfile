@@ -70,9 +70,12 @@ pipeline {
                 dir('infra') {
                     sh '''
                         #!/bin/bash
+                        set -euo pipefail
+
                         export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                         export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                         export AWS_DEFAULT_REGION=${AWS_REGION}
+                        KEEP_IMAGES=2
 
                         echo "$SERVICES" | tr ',' '\\n' | while read service; do
                             repoUri=$(terraform output -json ecr_repo_uris | jq -r ".\"$service\"")
@@ -85,16 +88,19 @@ pipeline {
                             docker build -t $repoUri:${BUILD_NUMBER} ../$service
                             docker push $repoUri:${BUILD_NUMBER}
 
-                            # Cleanup old images, keep only the latest $KEEP_IMAGES
+                            echo "Cleaning up old images for $service, keeping the latest $KEEP_IMAGES"
+                            
+                            # List all images except the current build
                             old_images=$(aws ecr list-images --repository-name $service --query 'imageIds[?imageTag!=`latest`]' --output json | \
-                                        jq -r --arg KEEP "$KEEP_IMAGES" '
-                                            sort_by(.imagePushedAt) |
-                                            .[0:-($KEEP|tonumber)] |
-                                            map({imageDigest: .imageDigest}) |
-                                            @json
-                                        ')
+                                jq --arg BUILD "$BUILD_NUMBER" --arg KEEP "$KEEP_IMAGES" '
+                                    map(select(.imageTag != $BUILD)) |
+                                    sort_by(.imagePushedAt) |
+                                    .[0:-($KEEP|tonumber)] |
+                                    map({imageDigest: .imageDigest}) |
+                                    select(length > 0)
+                                ')
 
-                            if [ "$old_images" != "[]" ] && [ -n "$old_images" ]; then
+                            if [ -n "$old_images" ] && [ "$old_images" != "null" ]; then
                                 echo "Deleting old images: $old_images"
                                 aws ecr batch-delete-image --repository-name $service --image-ids "$old_images"
                             else
@@ -105,6 +111,7 @@ pipeline {
                 }
             }
         }
+
 
         stage('Deploy ECS Services with Terraform') {
             steps {
