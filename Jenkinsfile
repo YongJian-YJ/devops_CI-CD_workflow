@@ -4,7 +4,7 @@ pipeline {
     environment {
         AWS_REGION = "us-east-1"
         ECR_REPO_URI = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista"
-        SERVICES = ["frontend", "catalogue", "recco", "voting"]
+        SERVICES = "frontend,catalogue,recco,voting"
     }
 
     stages {
