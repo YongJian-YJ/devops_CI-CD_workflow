@@ -21,9 +21,9 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh '''
-                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-                        aws configure set default.region ${AWS_REGION}
+                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
                     '''
                 }
             }
@@ -33,7 +33,7 @@ pipeline {
             steps {
                 dir('infra') {
                     sh 'terraform init'
-                    // Apply only ecr.tf to create repositories with a dummy image_tag
+                    // Apply only ECR resources with a dummy image_tag
                     sh "terraform apply -auto-approve -target=aws_ecr_repository.repos -var='image_tag=dummy'"
                 }
             }
@@ -52,10 +52,16 @@ pipeline {
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=${AWS_REGION}
 
+                            # Get all repo URIs dynamically from Terraform
                             ecr_repos=$(terraform output -json ecr_repo_uris | jq -r '.[]')
                             for repoUri in $ecr_repos; do
-                                echo "Logging in to $repoUri"
-                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $repoUri
+                                if [ -n "$repoUri" ]; then
+                                    echo "Logging in to $repoUri"
+                                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $repoUri
+                                else
+                                    echo "ERROR: Empty repo URI found"
+                                    exit 1
+                                fi
                             done
                         '''
                     }
@@ -63,21 +69,31 @@ pipeline {
             }
         }
 
-
         stage('Build and Push Docker Images') {
             steps {
-                script {
-                    def servicesList = SERVICES.split(',')
-                    for (service in servicesList) {
-                        // Get repo URI from Terraform output
-                        def repoUri = sh(
-                            script: "terraform output -json ecr_repo_uris | jq -r '.\"${service}\"'",
-                            returnStdout: true
-                        ).trim()
+                dir('infra') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )]) {
+                        sh '''
+                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                            export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                        echo "Building Docker image for ${service}..."
-                        sh "docker build -t ${repoUri}:${BUILD_NUMBER} ./${service}"
-                        sh "docker push ${repoUri}:${BUILD_NUMBER}"
+                            # Loop over services and build/push images
+                            for service in ${SERVICES//,/ }; do
+                                repoUri=$(terraform output -json ecr_repo_uris | jq -r ".\"$service\"")
+                                if [ -z "$repoUri" ]; then
+                                    echo "ERROR: Repo URI for $service is empty"
+                                    exit 1
+                                fi
+                                echo "Building Docker image for $service using $repoUri:${BUILD_NUMBER}"
+                                docker build -t $repoUri:${BUILD_NUMBER} ../$service
+                                docker push $repoUri:${BUILD_NUMBER}
+                            done
+                        '''
                     }
                 }
             }
