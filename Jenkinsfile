@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION = "us-east-1"
-        SERVICES = "frontend,catalogue,recco,voting"
+        SERVICES = "frontend,catalogue,reccommendation,voting"
     }
 
     stages {
