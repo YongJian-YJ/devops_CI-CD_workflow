@@ -33,8 +33,8 @@ pipeline {
             steps {
                 dir('infra') {
                     sh 'terraform init'
-                    // Apply only ecr.tf to create repositories
-                    sh "terraform apply -auto-approve -target=module.ecr"
+                    // Apply only ecr.tf to create repositories with a dummy image_tag
+                    sh "terraform apply -auto-approve -target=aws_ecr_repository.repos -var='image_tag=dummy'"
                 }
             }
         }
@@ -44,12 +44,11 @@ pipeline {
                 script {
                     // Get all repo URIs dynamically from Terraform output
                     def ecrRepos = sh(
-                        script: "terraform output -raw ecr_repo_uris",
+                        script: "terraform output -json ecr_repo_uris | jq -r '.[]'",
                         returnStdout: true
-                    ).trim().replaceAll("[{}\"]","").split(",")
+                    ).trim().split("\n")
 
-                    for (repoPair in ecrRepos) {
-                        def repoUri = repoPair.split(":")[1].trim()
+                    for (repoUri in ecrRepos) {
                         sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${repoUri}"
                     }
                 }
@@ -63,7 +62,7 @@ pipeline {
                     for (service in servicesList) {
                         // Get repo URI from Terraform output
                         def repoUri = sh(
-                            script: "terraform output -raw ecr_repo_uris | jq -r '.\"${service}\"'",
+                            script: "terraform output -json ecr_repo_uris | jq -r '.\"${service}\"'",
                             returnStdout: true
                         ).trim()
 
