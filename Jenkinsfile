@@ -13,15 +13,6 @@ pipeline {
             }
         }
 
-        stage('Deploy Terraform for ECR') {
-            steps {
-                dir('infra') {
-                    sh 'terraform init'
-                    sh "terraform apply -auto-approve -var='image_tag=${BUILD_NUMBER}'"
-                }
-            }
-        }
-
         stage('Login to AWS ECR') {
             steps {
                 withCredentials([usernamePassword(
@@ -29,24 +20,20 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID', 
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-                    script {
-                        def ecrUrisJson = sh(script: "terraform output -json ecr_repo_uris", returnStdout: true).trim()
-                        def ecrMap = readJSON text: ecrUrisJson
+                    sh '''
+                        # Configure AWS CLI
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws configure set default.region ${AWS_REGION}
 
-                        ecrMap.each { service, uri ->
-                            sh """
-                                aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-                                aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-                                aws configure set default.region ${AWS_REGION}
-
-                                echo "Logging in to ${uri}"
-                                aws ecr get-login-password | docker login --username AWS --password-stdin ${uri}
-                            """
-                        }
-
-                        // Save the map for the next stage
-                        env.ECR_MAP_JSON = ecrUrisJson
-                    }
+                        # Create ECR repos if they don't exist
+                        for service in $(echo ${SERVICES} | tr ',' ' '); do
+                            aws ecr describe-repositories --repository-names "craftista-${service}" >/dev/null 2>&1 || \
+                            aws ecr create-repository --repository-name "craftista-${service}"
+                            echo "Logging in to ECR: craftista-${service}"
+                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        done
+                    '''
                 }
             }
         }
@@ -54,9 +41,9 @@ pipeline {
         stage('Build and Push Docker Images') {
             steps {
                 script {
-                    def ecrMap = readJSON text: env.ECR_MAP_JSON
-                    ecrMap.each { service, uri ->
-                        def imageName = "${uri}:${BUILD_NUMBER}"
+                    def servicesList = SERVICES.split(',')
+                    for (service in servicesList) {
+                        def imageName = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/craftista-${service}:${BUILD_NUMBER}"
                         echo "Building Docker image for ${service}..."
                         sh "docker build -t ${imageName} ./${service}"
                         sh "docker push ${imageName}"
@@ -65,10 +52,14 @@ pipeline {
             }
         }
 
-        stage('Deploy ECS Services') {
+        stage('Deploy with Terraform') {
             steps {
                 dir('infra') {
-                    sh "terraform apply -auto-approve -var='image_tag=${BUILD_NUMBER}'"
+                    // Use Terraform official Docker container
+                    docker.image('hashicorp/terraform:1.6.3').inside {
+                        sh 'terraform init'
+                        sh "terraform apply -auto-approve -var='image_tag=${BUILD_NUMBER}'"
+                    }
                 }
             }
         }
