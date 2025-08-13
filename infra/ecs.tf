@@ -10,6 +10,7 @@ data "aws_subnet_ids" "default" {
   vpc_id = data.aws_vpc.default.id
 }
 
+# Security Group
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs_sg"
   description = "Allow HTTP inbound"
@@ -31,13 +32,6 @@ resource "aws_security_group" "ecs_sg" {
 
   ingress {
     from_port   = 8080
-    to_port     = 8080
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 8081
     to_port     = 8081
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
@@ -51,10 +45,12 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
+# ECS Cluster
 resource "aws_ecs_cluster" "cluster" {
   name = "craftista-cluster"
 }
 
+# IAM Role for ECS Tasks
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "ecsTaskExecutionRole"
 
@@ -73,16 +69,27 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Define task definitions and services for each app
+variable "services_ports" {
+  type = map(object({ port: number }))
+  default = {
+    frontend  = { port = 3000 }
+    catalogue = { port = 5000 }
+    recco     = { port = 8080 }
+    voting    = { port = 8081 }
+  }
+}
+
 variable "image_tag" {
   description = "Docker image tag to deploy"
   type        = string
 }
 
-# -----------------------------
-# Frontend Task & Service
-# -----------------------------
-resource "aws_ecs_task_definition" "frontend" {
-  family                   = "frontend-task"
+# ECS Task Definitions and Services
+resource "aws_ecs_task_definition" "tasks" {
+  for_each = var.services_ports
+
+  family                   = "${each.key}-task"
   cpu                      = "256"
   memory                   = "512"
   network_mode             = "awsvpc"
@@ -90,122 +97,19 @@ resource "aws_ecs_task_definition" "frontend" {
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{
-    name      = "frontend"
-    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/frontend-${var.image_tag}"
+    name      = each.key
+    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/${each.key}:${var.image_tag}"
     essential = true
-    portMappings = [{ containerPort = 3000, hostPort = 80, protocol = "tcp" }]
+    portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
 }
 
-resource "aws_ecs_service" "frontend_service" {
-  name            = "frontend-service"
+resource "aws_ecs_service" "services" {
+  for_each = aws_ecs_task_definition.tasks
+
+  name            = "${each.key}-service"
   cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.frontend.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets         = data.aws_subnet_ids.default.ids
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
-}
-
-# -----------------------------
-# Catalogue Task & Service
-# -----------------------------
-resource "aws_ecs_task_definition" "catalogue" {
-  family                   = "catalogue-task"
-  cpu                      = "256"
-  memory                   = "512"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "catalogue"
-    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/catalogue-${var.image_tag}"
-    essential = true
-    portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
-  }])
-}
-
-resource "aws_ecs_service" "catalogue_service" {
-  name            = "catalogue-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.catalogue.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets         = data.aws_subnet_ids.default.ids
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
-}
-
-# -----------------------------
-# Recommendation Task & Service
-# -----------------------------
-resource "aws_ecs_task_definition" "recco" {
-  family                   = "recco-task"
-  cpu                      = "256"
-  memory                   = "512"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "recco"
-    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/recco-${var.image_tag}"
-    essential = true
-    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
-  }])
-}
-
-resource "aws_ecs_service" "recco_service" {
-  name            = "recco-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.recco.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets         = data.aws_subnet_ids.default.ids
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
-}
-
-# -----------------------------
-# Voting Task & Service
-# -----------------------------
-resource "aws_ecs_task_definition" "voting" {
-  family                   = "voting-task"
-  cpu                      = "256"
-  memory                   = "512"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "voting"
-    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/voting-${var.image_tag}"
-    essential = true
-    portMappings = [{ containerPort = 8080, hostPort = 8081, protocol = "tcp" }]
-  }])
-}
-
-resource "aws_ecs_service" "voting_service" {
-  name            = "voting-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.voting.arn
+  task_definition = each.value.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 

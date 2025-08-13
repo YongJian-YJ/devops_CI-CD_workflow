@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         AWS_REGION = "us-east-1"
-        ECR_REPO_URI = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista"
         SERVICES = "frontend,catalogue,recco,voting"
     }
 
@@ -21,7 +20,7 @@ pipeline {
                                                   passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh '''
                         aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS --password-stdin ${ECR_REPO_URI}
+                        docker login --username AWS --password-stdin $(aws ecr describe-repositories --query 'repositories[].repositoryUri' --output text)
                     '''
                 }
             }
@@ -30,17 +29,16 @@ pipeline {
         stage('Build and Push Docker Images') {
             steps {
                 script {
-                    env.SERVICES.split(',').each { service ->
-                        def trimmed = service.trim()
-                        def imageName = "${ECR_REPO_URI}/${trimmed}:${BUILD_NUMBER}"
-                        echo "Building Docker image for ${trimmed}..."
-                        sh "docker build -t ${imageName} ./${trimmed}"
+                    def servicesList = SERVICES.split(',')
+                    for (service in servicesList) {
+                        def imageName = "422491854820.dkr.ecr.${AWS_REGION}.amazonaws.com/craftista-${service}:${BUILD_NUMBER}"
+                        echo "Building Docker image for ${service}..."
+                        sh "docker build -t ${imageName} ./${service}"
                         sh "docker push ${imageName}"
                     }
                 }
             }
         }
-
 
         stage('Deploy with Terraform') {
             steps {
