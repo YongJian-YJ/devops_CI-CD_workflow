@@ -85,15 +85,17 @@ resource "aws_ecs_task_definition" "tasks" {
     essential = true
     portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
-# ECS Services
-resource "aws_ecs_service" "services" {
-  for_each = aws_ecs_task_definition.tasks
-
-  name            = "${each.key}-service"
+# ECS Services (individual resources for reliability)
+resource "aws_ecs_service" "catalogue" {
+  name            = "catalogue-service"
   cluster         = aws_ecs_cluster.cluster.id
-  task_definition = each.value.arn
+  task_definition = aws_ecs_task_definition.tasks["catalogue"].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
@@ -103,10 +105,69 @@ resource "aws_ecs_service" "services" {
     assign_public_ip = true
   }
 
-  # Ensure ECS service waits for task definitions, SG, and IAM policy attachment
   depends_on = [
+    aws_ecs_task_definition.tasks["catalogue"],
     aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-    aws_security_group.ecs_sg,
-    aws_ecs_task_definition.tasks
+    aws_security_group.ecs_sg
+  ]
+}
+
+resource "aws_ecs_service" "frontend" {
+  name            = "frontend-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.tasks["frontend"].arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [
+    aws_ecs_task_definition.tasks["frontend"],
+    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
+    aws_security_group.ecs_sg
+  ]
+}
+
+resource "aws_ecs_service" "recommendation" {
+  name            = "recommendation-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.tasks["recommendation"].arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [
+    aws_ecs_task_definition.tasks["recommendation"],
+    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
+    aws_security_group.ecs_sg
+  ]
+}
+
+resource "aws_ecs_service" "voting" {
+  name            = "voting-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.tasks["voting"].arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [
+    aws_ecs_task_definition.tasks["voting"],
+    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
+    aws_security_group.ecs_sg
   ]
 }
