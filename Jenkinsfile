@@ -26,7 +26,7 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t craftista:latest .'
+                sh 'docker build -t ${ECR_REPO_URI}:${BUILD_NUMBER} .'
             }
         }
 
