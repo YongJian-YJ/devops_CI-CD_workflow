@@ -15,16 +15,27 @@ pipeline {
 
         stage('Login to AWS ECR') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'aws-credentials', 
-                                                  usernameVariable: 'AWS_ACCESS_KEY_ID', 
-                                                  passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials', 
+                    usernameVariable: 'AWS_ACCESS_KEY_ID', 
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
                     sh '''
-                        aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS --password-stdin $(aws ecr describe-repositories --query 'repositories[].repositoryUri' --output text)
+                        # Configure AWS CLI with the credentials
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws configure set default.region us-east-1
+
+                        # Login to ECR
+                        for repo in $(aws ecr describe-repositories --query 'repositories[].repositoryUri' --output text); do
+                            echo "Logging in to $repo"
+                            aws ecr get-login-password | docker login --username AWS --password-stdin $repo
+                        done
                     '''
                 }
             }
         }
+
 
         stage('Build and Push Docker Images') {
             steps {
