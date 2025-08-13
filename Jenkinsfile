@@ -86,9 +86,15 @@ pipeline {
                             docker push $repoUri:${BUILD_NUMBER}
 
                             # Cleanup old images, keep only the latest $KEEP_IMAGES
-                            echo "Cleaning up old images for $service"
-                            old_images=$(aws ecr list-images --repository-name $service --query 'imageIds[?imageTag!=`latest`]|sort_by(@,&imagePushedAt)[0:-${KEEP_IMAGES}]' --output json)
-                            if [ "$old_images" != "[]" ]; then
+                            old_images=$(aws ecr list-images --repository-name $service --query 'imageIds[?imageTag!=`latest`]' --output json | \
+                                        jq -r --arg KEEP "$KEEP_IMAGES" '
+                                            sort_by(.imagePushedAt) |
+                                            .[0:-($KEEP|tonumber)] |
+                                            map({imageDigest: .imageDigest}) |
+                                            @json
+                                        ')
+
+                            if [ "$old_images" != "[]" ] && [ -n "$old_images" ]; then
                                 echo "Deleting old images: $old_images"
                                 aws ecr batch-delete-image --repository-name $service --image-ids "$old_images"
                             else
