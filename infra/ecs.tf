@@ -88,6 +88,26 @@ resource "aws_ecs_task_definition" "tasks" {
 }
 
 # ECS Services
+resource "aws_ecs_task_definition" "catalogue" {
+  family                   = "catalogue-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "catalogue"
+    image     = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
+  }])
+
+  depends_on = [
+    aws_iam_role_policy_attachment.ecs_task_execution_role_policy
+  ]
+}
+
 resource "aws_ecs_task_definition" "frontend" {
   family                   = "frontend-task"
   cpu                      = "256"
@@ -102,27 +122,13 @@ resource "aws_ecs_task_definition" "frontend" {
     essential = true
     portMappings = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
   }])
-}
 
-resource "aws_ecs_task_definition" "catalogue" {
-  depends_on               = [aws_ecs_task_definition.frontend]
-  family                   = "catalogue-task"
-  cpu                      = "256"
-  memory                   = "512"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "catalogue"
-    image     = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
-    essential = true
-    portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
-  }])
+  depends_on = [
+    aws_ecs_task_definition.catalogue
+  ]
 }
 
 resource "aws_ecs_task_definition" "recommendation" {
-  depends_on               = [aws_ecs_task_definition.catalogue]
   family                   = "recommendation-task"
   cpu                      = "256"
   memory                   = "512"
@@ -136,10 +142,13 @@ resource "aws_ecs_task_definition" "recommendation" {
     essential = true
     portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
   }])
+
+  depends_on = [
+    aws_ecs_task_definition.frontend
+  ]
 }
 
 resource "aws_ecs_task_definition" "voting" {
-  depends_on               = [aws_ecs_task_definition.recommendation]
   family                   = "voting-task"
   cpu                      = "256"
   memory                   = "512"
@@ -153,4 +162,8 @@ resource "aws_ecs_task_definition" "voting" {
     essential = true
     portMappings = [{ containerPort = 8081, hostPort = 8081, protocol = "tcp" }]
   }])
+
+  depends_on = [
+    aws_ecs_task_definition.recommendation
+  ]
 }
