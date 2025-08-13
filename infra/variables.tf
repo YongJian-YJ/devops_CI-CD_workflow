@@ -20,7 +20,7 @@ variable "services_ports" {
   default = {
     frontend  = { port = 3000 }
     catalogue = { port = 5000 }
-    recommendation     = { port = 8080 }
-    voting    = { port = 8081 }
+    recommendation = { port = 8080 }
+    voting = { port = 8081 }
   }
 }
