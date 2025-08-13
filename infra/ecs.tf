@@ -1,7 +1,3 @@
-provider "aws" {
-  region = "us-east-1"
-}
-
 data "aws_vpc" "default" {
   default = true
 }
@@ -69,27 +65,6 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-variable "services_ports" {
-  type = map(object({ port: number }))
-  default = {
-    frontend  = { port = 3000 }
-    catalogue = { port = 5000 }
-    recco     = { port = 8080 }
-    voting    = { port = 8081 }
-  }
-}
-
-variable "image_tag" {
-  description = "Docker image tag to deploy"
-  type        = string
-}
-
-# Pass in ECR repository URIs from ecr.tf output
-variable "ecr_repo_uris" {
-  description = "Map of service -> ECR repository URI"
-  type        = map(string)
-}
-
 # ECS Task Definitions
 resource "aws_ecs_task_definition" "tasks" {
   for_each = var.services_ports
@@ -103,7 +78,7 @@ resource "aws_ecs_task_definition" "tasks" {
 
   container_definitions = jsonencode([{
     name      = each.key
-    image     = "${var.ecr_repo_uris[each.key]}:${var.image_tag}"
+    image     = "${aws_ecr_repository.repos[each.key].repository_url}:${var.image_tag}"
     essential = true
     portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
