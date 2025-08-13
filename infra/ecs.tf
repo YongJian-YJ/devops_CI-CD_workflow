@@ -85,89 +85,69 @@ resource "aws_ecs_task_definition" "tasks" {
     essential = true
     portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
-
-  lifecycle {
-    create_before_destroy = true
-  }
 }
 
-# ECS Services (individual resources for reliability)
-resource "aws_ecs_service" "catalogue" {
-  name            = "catalogue-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.tasks["catalogue"].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+# ECS Services
+resource "aws_ecs_task_definition" "frontend" {
+  family                   = "frontend-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [
-    aws_ecs_task_definition.tasks["catalogue"],
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-    aws_security_group.ecs_sg
-  ]
+  container_definitions = jsonencode([{
+    name      = "frontend"
+    image     = "${aws_ecr_repository.repos["frontend"].repository_url}:${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
+  }])
 }
 
-resource "aws_ecs_service" "frontend" {
-  name            = "frontend-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.tasks["frontend"].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+resource "aws_ecs_task_definition" "catalogue" {
+  family                   = "catalogue-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [
-    aws_ecs_task_definition.tasks["frontend"],
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-    aws_security_group.ecs_sg
-  ]
+  container_definitions = jsonencode([{
+    name      = "catalogue"
+    image     = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
+  }])
 }
 
-resource "aws_ecs_service" "recommendation" {
-  name            = "recommendation-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.tasks["recommendation"].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+resource "aws_ecs_task_definition" "recommendation" {
+  family                   = "recommendation-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [
-    aws_ecs_task_definition.tasks["recommendation"],
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-    aws_security_group.ecs_sg
-  ]
+  container_definitions = jsonencode([{
+    name      = "recommendation"
+    image     = "${aws_ecr_repository.repos["recommendation"].repository_url}:${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+  }])
 }
 
-resource "aws_ecs_service" "voting" {
-  name            = "voting-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.tasks["voting"].arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+resource "aws_ecs_task_definition" "voting" {
+  family                   = "voting-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  depends_on = [
-    aws_ecs_task_definition.tasks["voting"],
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
-    aws_security_group.ecs_sg
-  ]
+  container_definitions = jsonencode([{
+    name      = "voting"
+    image     = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 8081, hostPort = 8081, protocol = "tcp" }]
+  }])
 }
