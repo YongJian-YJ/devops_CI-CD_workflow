@@ -23,6 +23,13 @@ resource "aws_security_group" "ecs_sg" {
   }
 
   ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
@@ -86,4 +93,3 @@ resource "aws_ecs_task_definition" "tasks" {
     portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
 }
-

@@ -16,11 +16,11 @@ variable "services" {
 
 variable "services_ports" {
   description = "Map of services to container ports"
-  type = map(object({ port: number }))
+  type = map(object({ port = number }))
   default = {
-    frontend  = { port = 3000 }
-    catalogue = { port = 5000 }
+    frontend       = { port = 3000 }
+    catalogue      = { port = 5000 }
     recommendation = { port = 8080 }
-    voting = { port = 8081 }
+    voting         = { port = 8081 }
   }
 }
