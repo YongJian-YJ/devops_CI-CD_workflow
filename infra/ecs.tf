@@ -102,10 +102,6 @@ resource "aws_ecs_task_definition" "catalogue" {
     essential = true
     portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
   }])
-
-  depends_on = [
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy
-  ]
 }
 
 resource "aws_ecs_task_definition" "frontend" {
@@ -123,9 +119,7 @@ resource "aws_ecs_task_definition" "frontend" {
     portMappings = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }]
   }])
 
-  depends_on = [
-    aws_ecs_task_definition.catalogue
-  ]
+  depends_on = [aws_ecs_task_definition.catalogue]
 }
 
 resource "aws_ecs_task_definition" "recommendation" {
@@ -143,9 +137,7 @@ resource "aws_ecs_task_definition" "recommendation" {
     portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
   }])
 
-  depends_on = [
-    aws_ecs_task_definition.frontend
-  ]
+  depends_on = [aws_ecs_task_definition.frontend]
 }
 
 resource "aws_ecs_task_definition" "voting" {
@@ -163,7 +155,5 @@ resource "aws_ecs_task_definition" "voting" {
     portMappings = [{ containerPort = 8081, hostPort = 8081, protocol = "tcp" }]
   }])
 
-  depends_on = [
-    aws_ecs_task_definition.recommendation
-  ]
+  depends_on = [aws_ecs_task_definition.recommendation]
 }
