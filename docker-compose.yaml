@@ -31,7 +31,7 @@ services:
       - craftista
 
   recco:
-    image: my/craftista-recco:dev
+    image: my/craftista-recommendation:dev
     build:
       context: ./recommendation
     ports:
