@@ -41,19 +41,28 @@ pipeline {
 
         stage('Login to AWS ECR') {
             steps {
-                script {
-                    // Get all repo URIs dynamically from Terraform output
-                    def ecrRepos = sh(
-                        script: "terraform output -json ecr_repo_uris | jq -r '.[]'",
-                        returnStdout: true
-                    ).trim().split("\n")
+                dir('infra') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    )]) {
+                        sh '''
+                            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                            export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                    for (repoUri in ecrRepos) {
-                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${repoUri}"
+                            ecr_repos=$(terraform output -json ecr_repo_uris | jq -r '.[]')
+                            for repoUri in $ecr_repos; do
+                                echo "Logging in to $repoUri"
+                                aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin $repoUri
+                            done
+                        '''
                     }
                 }
             }
         }
+
 
         stage('Build and Push Docker Images') {
             steps {
