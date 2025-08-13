@@ -85,10 +85,8 @@ pipeline {
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                            # Split SERVICES into array
-                            IFS=',' read -r -a servicesArray <<< "$SERVICES"
-
-                            for service in "${servicesArray[@]}"; do
+                            # Loop over SERVICES safely using tr
+                            echo "$SERVICES" | tr ',' '\\n' | while read service; do
                                 repoUri=$(terraform output -json ecr_repo_uris | jq -r ".\"$service\"")
                                 if [ -z "$repoUri" ]; then
                                     echo "ERROR: Repo URI for $service is empty"
