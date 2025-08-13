@@ -22,6 +22,27 @@ resource "aws_security_group" "ecs_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 8081
+    to_port     = 8081
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -39,15 +60,11 @@ resource "aws_iam_role" "ecs_task_execution_role" {
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        },
-        Action = "sts:AssumeRole"
-      }
-    ]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
 }
 
@@ -61,32 +78,29 @@ variable "image_tag" {
   type        = string
 }
 
-resource "aws_ecs_task_definition" "task" {
-  family                   = "craftista-task"
+# -----------------------------
+# Frontend Task & Service
+# -----------------------------
+resource "aws_ecs_task_definition" "frontend" {
+  family                   = "frontend-task"
   cpu                      = "256"
   memory                   = "512"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name      = "craftista"
-      image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista:${var.image_tag}"
-      essential = true
-      portMappings = [{
-        containerPort = 80
-        hostPort      = 80
-        protocol      = "tcp"
-      }]
-    }
-  ])
+  container_definitions = jsonencode([{
+    name      = "frontend"
+    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/frontend-${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 3000, hostPort = 80, protocol = "tcp" }]
+  }])
 }
 
-resource "aws_ecs_service" "service" {
-  name            = "craftista-service"
+resource "aws_ecs_service" "frontend_service" {
+  name            = "frontend-service"
   cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.task.arn
+  task_definition = aws_ecs_task_definition.frontend.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
@@ -96,7 +110,110 @@ resource "aws_ecs_service" "service" {
     assign_public_ip = true
   }
 
-  depends_on = [
-    aws_iam_role_policy_attachment.ecs_task_execution_role_policy
-  ]
+  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
+}
+
+# -----------------------------
+# Catalogue Task & Service
+# -----------------------------
+resource "aws_ecs_task_definition" "catalogue" {
+  family                   = "catalogue-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "catalogue"
+    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/catalogue-${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 5000, hostPort = 5000, protocol = "tcp" }]
+  }])
+}
+
+resource "aws_ecs_service" "catalogue_service" {
+  name            = "catalogue-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.catalogue.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = data.aws_subnet_ids.default.ids
+    security_groups = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
+}
+
+# -----------------------------
+# Recommendation Task & Service
+# -----------------------------
+resource "aws_ecs_task_definition" "recco" {
+  family                   = "recco-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "recco"
+    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/recco-${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+  }])
+}
+
+resource "aws_ecs_service" "recco_service" {
+  name            = "recco-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.recco.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = data.aws_subnet_ids.default.ids
+    security_groups = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
+}
+
+# -----------------------------
+# Voting Task & Service
+# -----------------------------
+resource "aws_ecs_task_definition" "voting" {
+  family                   = "voting-task"
+  cpu                      = "256"
+  memory                   = "512"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+
+  container_definitions = jsonencode([{
+    name      = "voting"
+    image     = "422491854820.dkr.ecr.us-east-1.amazonaws.com/craftista/voting-${var.image_tag}"
+    essential = true
+    portMappings = [{ containerPort = 8080, hostPort = 8081, protocol = "tcp" }]
+  }])
+}
+
+resource "aws_ecs_service" "voting_service" {
+  name            = "voting-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.voting.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = data.aws_subnet_ids.default.ids
+    security_groups = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
 }
