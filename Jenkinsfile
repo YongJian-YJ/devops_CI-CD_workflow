@@ -21,6 +21,7 @@ pipeline {
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
                     sh '''
+                        #!/bin/bash
                         export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                         export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                         export AWS_DEFAULT_REGION=${AWS_REGION}
@@ -48,6 +49,7 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )]) {
                         sh '''
+                            #!/bin/bash
                             export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=${AWS_REGION}
@@ -78,12 +80,15 @@ pipeline {
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                     )]) {
                         sh '''
+                            #!/bin/bash
                             export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                             export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                             export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                            # Loop over services and build/push images
-                            for service in ${SERVICES//,/ }; do
+                            # Split SERVICES into array
+                            IFS=',' read -r -a servicesArray <<< "$SERVICES"
+
+                            for service in "${servicesArray[@]}"; do
                                 repoUri=$(terraform output -json ecr_repo_uris | jq -r ".\"$service\"")
                                 if [ -z "$repoUri" ]; then
                                     echo "ERROR: Repo URI for $service is empty"
