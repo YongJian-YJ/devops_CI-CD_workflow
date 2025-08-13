@@ -33,7 +33,8 @@ pipeline {
             steps {
                 dir('infra') {
                     sh 'terraform init'
-                    sh "terraform apply -auto-approve"
+                    // Apply only ecr.tf to create repositories
+                    sh "terraform apply -auto-approve -target=module.ecr"
                 }
             }
         }
@@ -41,14 +42,15 @@ pipeline {
         stage('Login to AWS ECR') {
             steps {
                 script {
-                    // Get all repo URIs dynamically from AWS
+                    // Get all repo URIs dynamically from Terraform output
                     def ecrRepos = sh(
-                        script: "aws ecr describe-repositories --query 'repositories[].repositoryUri' --output text",
+                        script: "terraform output -raw ecr_repo_uris",
                         returnStdout: true
-                    ).trim().split()
+                    ).trim().replaceAll("[{}\"]","").split(",")
 
-                    for (repo in ecrRepos) {
-                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${repo}"
+                    for (repoPair in ecrRepos) {
+                        def repoUri = repoPair.split(":")[1].trim()
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${repoUri}"
                     }
                 }
             }
@@ -59,9 +61,9 @@ pipeline {
                 script {
                     def servicesList = SERVICES.split(',')
                     for (service in servicesList) {
-                        // Find the matching ECR repo for this service
+                        // Get repo URI from Terraform output
                         def repoUri = sh(
-                            script: "aws ecr describe-repositories --repository-names craftista-${service} --query 'repositories[0].repositoryUri' --output text",
+                            script: "terraform output -raw ecr_repo_uris | jq -r '.\"${service}\"'",
                             returnStdout: true
                         ).trim()
 
@@ -73,7 +75,7 @@ pipeline {
             }
         }
 
-        stage('Deplo ECS Services with Terraform') {
+        stage('Deploy ECS Services with Terraform') {
             steps {
                 dir('infra') {
                     sh "terraform apply -auto-approve -var='image_tag=${BUILD_NUMBER}'"
