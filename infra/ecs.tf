@@ -98,10 +98,15 @@ resource "aws_ecs_service" "services" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = data.aws_subnets.default.ids # Updated from aws_subnet_ids
+    subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
 
-  depends_on = [aws_iam_role_policy_attachment.ecs_task_execution_role_policy]
+  # Ensure ECS service waits for task definitions, SG, and IAM policy attachment
+  depends_on = [
+    aws_iam_role_policy_attachment.ecs_task_execution_role_policy,
+    aws_security_group.ecs_sg,
+    aws_ecs_task_definition.tasks
+  ]
 }
