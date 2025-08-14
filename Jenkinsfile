@@ -116,8 +116,10 @@ pipeline {
         stage('Deploy ECS Services with Terraform') {
             steps {
                 dir('infra') {
-                    sh 'terraform init -upgrade'
-                    sh "terraform apply -auto-approve -var='image_tag=${BUILD_NUMBER}'"
+                    sh '''
+                        terraform init -upgrade
+                        terraform apply -auto-approve -var="image_tag=${BUILD_NUMBER}" -var="services=${SERVICES}"
+                    '''
                 }
             }
         }

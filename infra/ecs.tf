@@ -93,3 +93,23 @@ resource "aws_ecs_task_definition" "tasks" {
     portMappings = [{ containerPort = each.value.port, hostPort = each.value.port, protocol = "tcp" }]
   }])
 }
+
+# ECS Services
+resource "aws_ecs_service" "services" {
+  for_each        = var.services_ports
+  name            = "${each.key}-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.tasks[each.key].arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets         = data.aws_subnets.default.ids
+    security_groups = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  depends_on = [
+    aws_ecs_task_definition.tasks
+  ]
+}
