@@ -21,12 +21,7 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID',
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-                    sh '''
-                        #!/bin/bash
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=${AWS_REGION}
-                    '''
+                    sh 'bash -c "export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID; export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY; export AWS_DEFAULT_REGION=${AWS_REGION}"'
                 }
             }
         }
@@ -34,8 +29,8 @@ pipeline {
         stage('Deploy ECR Repositories with Terraform') {
             steps {
                 dir('infra') {
-                    sh 'terraform init'
-                    sh "terraform apply -auto-approve -target=aws_ecr_repository.repos -var='image_tag=dummy'"
+                    sh 'bash -c "terraform init"'
+                    sh "bash -c 'terraform apply -auto-approve -target=aws_ecr_repository.repos -var=\"image_tag=dummy\"'"
                 }
             }
         }
@@ -44,13 +39,12 @@ pipeline {
             steps {
                 dir('infra') {
                     sh '''
-                        #!/bin/bash
+                        bash -c '
                         export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                         export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                         export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                        # Get all repo URIs dynamically from Terraform
-                        ecr_repos=$(terraform output -json ecr_repo_uris | jq -r '.[]')
+                        ecr_repos=$(terraform output -json ecr_repo_uris | jq -r ".[]")
                         for repoUri in $ecr_repos; do
                             if [ -n "$repoUri" ]; then
                                 echo "Logging in to $repoUri"
@@ -60,6 +54,7 @@ pipeline {
                                 exit 1
                             fi
                         done
+                        '
                     '''
                 }
             }
@@ -69,15 +64,14 @@ pipeline {
             steps {
                 dir('infra') {
                     sh '''
-                        #!/bin/bash
+                        bash -c '
                         set -euo pipefail
-
                         export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
                         export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
                         export AWS_DEFAULT_REGION=${AWS_REGION}
                         KEEP_IMAGES=2
 
-                        echo "$SERVICES" | tr ',' '\\n' | while read service; do
+                        echo "$SERVICES" | tr "," "\\n" | while read service; do
                             repoUri=$(terraform output -json ecr_repo_uris | jq -r ".\"$service\"")
                             if [ -z "$repoUri" ]; then
                                 echo "ERROR: Repo URI for $service is empty"
@@ -89,9 +83,8 @@ pipeline {
                             docker push $repoUri:${BUILD_NUMBER}
 
                             echo "Cleaning up old images for $service, keeping the latest $KEEP_IMAGES"
-                            
-                            # List all images except the current build
-                            old_images=$(aws ecr list-images --repository-name $service --query 'imageIds[?imageTag!=`latest`]' --output json | \
+
+                            old_images=$(aws ecr list-images --repository-name $service --query "imageIds[?imageTag!=\`latest\`]" --output json | \
                                 jq --arg BUILD "$BUILD_NUMBER" --arg KEEP "$KEEP_IMAGES" '
                                     map(select(.imageTag != $BUILD)) |
                                     sort_by(.imagePushedAt) |
@@ -107,18 +100,20 @@ pipeline {
                                 echo "No old images to delete for $service"
                             fi
                         done
+                        '
                     '''
                 }
             }
         }
 
-
         stage('Deploy ECS Services with Terraform') {
             steps {
                 dir('infra') {
                     sh '''
+                        bash -c '
                         terraform init -upgrade
                         terraform apply -auto-approve -var="image_tag=${BUILD_NUMBER}" -var="services=${SERVICES}"
+                        '
                     '''
                 }
             }
