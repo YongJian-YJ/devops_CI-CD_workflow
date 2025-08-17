@@ -30,7 +30,7 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# Security Group for ECS Task
+# Security Group for ECS
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
   description = "Security group for ECS services"
@@ -67,7 +67,7 @@ resource "aws_lb" "main" {
   subnets            = data.aws_subnets.default.ids
 }
 
-# Target Group for frontend
+# ALB Target Groups (one per service)
 resource "aws_lb_target_group" "frontend_tg" {
   name        = "frontend-tg"
   port        = 3000
@@ -76,14 +76,67 @@ resource "aws_lb_target_group" "frontend_tg" {
   target_type = "ip"
 
   health_check {
-    enabled             = true
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 10
-    timeout             = 5
-    interval            = 30
+  }
+}
+
+resource "aws_lb_target_group" "catalogue_tg" {
+  name        = "catalogue-tg"
+  port        = 5000
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
     path                = "/"
-    matcher             = "200"
     protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
+  }
+}
+
+resource "aws_lb_target_group" "recommendation_tg" {
+  name        = "recommendation-tg"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
+  }
+}
+
+resource "aws_lb_target_group" "voting_tg" {
+  name        = "voting-tg"
+  port        = 8081
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
   }
 }
 
@@ -96,6 +149,55 @@ resource "aws_lb_listener" "main" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend_tg.arn
+  }
+}
+
+# Path-based rules
+resource "aws_lb_listener_rule" "catalogue_rule" {
+  listener_arn = aws_lb_listener.main.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.catalogue_tg.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/catalogue*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "recommendation_rule" {
+  listener_arn = aws_lb_listener.main.arn
+  priority     = 20
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.recommendation_tg.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/recommendation*"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "voting_rule" {
+  listener_arn = aws_lb_listener.main.arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.voting_tg.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/voting*"]
+    }
   }
 }
 
@@ -123,13 +225,13 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# CloudWatch Log Group for ECS
+# CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "ecs_log_group" {
   name              = "/ecs/craftista-service"
   retention_in_days = 7
 }
 
-# ECS Task Definition with CloudWatch logging
+# ECS Task Definition
 resource "aws_ecs_task_definition" "craftista_task" {
   family                   = "craftista-task"
   cpu                      = "2048"
@@ -140,11 +242,10 @@ resource "aws_ecs_task_definition" "craftista_task" {
 
   container_definitions = jsonencode([
     {
-      name      = "frontend"
-      image     = "${aws_ecr_repository.repos["frontend"].repository_url}:${var.image_tag}"
-      essential = true
-      portMappings = [{ containerPort = 3000, protocol = "tcp" }]
-      environment  = [{ name = "PORT", value = "3000" }]
+      name         = "frontend"
+      image        = "${aws_ecr_repository.repos["frontend"].repository_url}:${var.image_tag}"
+      essential    = true
+      portMappings = [{ containerPort = 3000, hostPort = 3000 }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -155,11 +256,10 @@ resource "aws_ecs_task_definition" "craftista_task" {
       }
     },
     {
-      name      = "catalogue"
-      image     = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
-      essential = true
-      portMappings = [{ containerPort = 5000, protocol = "tcp" }]
-      environment  = [{ name = "PORT", value = "5000" }]
+      name         = "catalogue"
+      image        = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
+      essential    = true
+      portMappings = [{ containerPort = 5000, hostPort = 5000 }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -170,9 +270,9 @@ resource "aws_ecs_task_definition" "craftista_task" {
       }
     },
     {
-      name      = "catalogue-db"
-      image     = "postgres:16.2-alpine3.19"
-      essential = true
+      name         = "catalogue-db"
+      image        = "postgres:16.2-alpine3.19"
+      essential    = true
       environment = [
         { name = "POSTGRES_USER", value = "devops" },
         { name = "POSTGRES_PASSWORD", value = "devops" },
@@ -188,10 +288,10 @@ resource "aws_ecs_task_definition" "craftista_task" {
       }
     },
     {
-      name      = "recommendation"
-      image     = "${aws_ecr_repository.repos["recommendation"].repository_url}:${var.image_tag}"
-      essential = true
-      portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+      name         = "recommendation"
+      image        = "${aws_ecr_repository.repos["recommendation"].repository_url}:${var.image_tag}"
+      essential    = true
+      portMappings = [{ containerPort = 8080, hostPort = 8080 }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -202,19 +302,10 @@ resource "aws_ecs_task_definition" "craftista_task" {
       }
     },
     {
-      name      = "voting"
-      image     = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
-      essential = true
-      portMappings = [
-        {
-          containerPort = 8080
-          hostPort      = 8081
-          protocol      = "tcp"
-        }
-      ]
-      environment = [
-        { name = "SERVER_PORT", value = "8080" }
-      ]
+      name         = "voting"
+      image        = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
+      essential    = true
+      portMappings = [{ containerPort = 8081, hostPort = 8081 }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
