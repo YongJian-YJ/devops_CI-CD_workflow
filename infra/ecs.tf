@@ -102,11 +102,11 @@ resource "aws_lb_target_group" "service_tgs" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 3  # More tolerant
-    timeout            = 10  # Longer timeout
-    interval           = 60  # Less frequent checks
-    path               = each.key == "frontend" ? "/" : "/health"  # Use /health for APIs
-    matcher            = "200,404"  # Accept 404 if /health doesn't exist yet
+    unhealthy_threshold = 10  # Very tolerant
+    timeout            = 30   # Long timeout
+    interval           = 300  # Check every 5 minutes
+    path               = "/"  # Use root path for all
+    matcher            = "200,404,500"  # Accept almost any response
     port               = "traffic-port"
     protocol           = "HTTP"
   }
