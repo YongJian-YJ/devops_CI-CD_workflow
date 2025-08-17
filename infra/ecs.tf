@@ -256,12 +256,6 @@ resource "aws_ecs_service" "services" {
     aws_ecs_task_definition.tasks
   ]
 
-  # Deployment configuration
-  deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 100
-  }
-
   tags = {
     Name = "${each.key} Service"
   }
