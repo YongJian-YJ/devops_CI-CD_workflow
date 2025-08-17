@@ -22,14 +22,20 @@ variable "services_ports" {
     port = number
   }))
   default = {
-    frontend       = { port = 3000 }  # From docker-compose: 80:3000
-    catalogue      = { port = 5000 }  # From docker-compose: 5000:5000
-    recommendation = { port = 8080 }  # From docker-compose: 8080:8080
-    voting         = { port = 8081 }  # Container port 8081 to avoid conflict
-    catalogue-db   = { port = 5432 }  # Postgres default
+    frontend = {
+      port = 3000  # From docker-compose: 80:3000
+    }
+    catalogue = {
+      port = 5000  # From docker-compose: 5000:5000
+    }
+    recommendation = {
+      port = 8080  # From docker-compose: 8080:8080
+    }
+    voting = {
+      port = 8080  # From docker-compose: 8081:8080 (container port is 8080)
+    }
   }
 }
-
 
 variable "environment" {
   description = "Environment name"

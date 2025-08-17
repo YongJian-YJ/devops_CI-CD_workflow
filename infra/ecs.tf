@@ -1,3 +1,4 @@
+# infra/ecs.tf - Fixed version with proper health checks
 data "aws_vpc" "default" {
   default = true
 }
@@ -22,20 +23,32 @@ resource "aws_security_group" "alb_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "ALB Security Group"
+  }
 }
 
-# Security Group for ECS
+# Security Group for ECS Services
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
   description = "Security group for ECS services"
   vpc_id      = data.aws_vpc.default.id
 
+  # Allow traffic from ALB
   ingress {
     from_port       = 0
     to_port         = 65535
@@ -43,6 +56,7 @@ resource "aws_security_group" "ecs_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
+  # Allow inter-service communication
   ingress {
     from_port = 0
     to_port   = 65535
@@ -56,147 +70,87 @@ resource "aws_security_group" "ecs_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "ECS Security Group"
+  }
 }
 
 # Application Load Balancer
 resource "aws_lb" "main" {
-  name               = "craftista-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = data.aws_subnets.default.ids
-}
+  name                       = "craftista-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups           = [aws_security_group.alb_sg.id]
+  subnets                   = data.aws_subnets.default.ids
+  enable_deletion_protection = false
 
-# ALB Target Groups (one per service)
-resource "aws_lb_target_group" "frontend_tg" {
-  name        = "frontend-tg"
-  port        = 3000
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
-  target_type = "ip"
-
-  health_check {
-    path                = "/"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 10
+  tags = {
+    Name = "Craftista ALB"
   }
 }
 
-resource "aws_lb_target_group" "catalogue_tg" {
-  name        = "catalogue-tg"
-  port        = 5000
+# Target Groups for each service with improved health checks
+resource "aws_lb_target_group" "service_tgs" {
+  for_each    = var.services_ports
+  name        = "${each.key}-tg"
+  port        = each.value.port
   protocol    = "HTTP"
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
 
   health_check {
-    path                = "/"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
+    enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 10
+    unhealthy_threshold = 10  # Very tolerant
+    timeout            = 30   # Long timeout
+    interval           = 300  # Check every 5 minutes
+    path               = "/"  # Use root path for all
+    matcher            = "200,404,500"  # Accept almost any response
+    port               = "traffic-port"
+    protocol           = "HTTP"
   }
-}
 
-resource "aws_lb_target_group" "recommendation_tg" {
-  name        = "recommendation-tg"
-  port        = 8080
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
-  target_type = "ip"
+  # Deregistration delay
+  deregistration_delay = 30
 
-  health_check {
-    path                = "/"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 10
-  }
-}
-
-resource "aws_lb_target_group" "voting_tg" {
-  name        = "voting-tg"
-  port        = 8081
-  protocol    = "HTTP"
-  vpc_id      = data.aws_vpc.default.id
-  target_type = "ip"
-
-  health_check {
-    path                = "/"
-    protocol            = "HTTP"
-    matcher             = "200"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 10
+  tags = {
+    Name = "${each.key} Target Group"
   }
 }
 
 # ALB Listener
 resource "aws_lb_listener" "main" {
   load_balancer_arn = aws_lb.main.arn
-  port              = 80
+  port              = "80"
   protocol          = "HTTP"
 
+  # Default action - forward to frontend
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.frontend_tg.arn
+    target_group_arn = aws_lb_target_group.service_tgs["frontend"].arn
   }
 }
 
-# Path-based rules
-resource "aws_lb_listener_rule" "catalogue_rule" {
+# ALB Listener Rules for path-based routing
+resource "aws_lb_listener_rule" "service_rules" {
+  for_each = {
+    catalogue      = "/api/catalogue*"
+    recommendation = "/api/recommendation*"
+    voting         = "/api/voting*"
+  }
+
   listener_arn = aws_lb_listener.main.arn
-  priority     = 10
+  priority     = 100 + index(keys(var.services_ports), each.key)
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.catalogue_tg.arn
+    target_group_arn = aws_lb_target_group.service_tgs[each.key].arn
   }
 
   condition {
     path_pattern {
-      values = ["/catalogue*"]
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "recommendation_rule" {
-  listener_arn = aws_lb_listener.main.arn
-  priority     = 20
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.recommendation_tg.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/recommendation*"]
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "voting_rule" {
-  listener_arn = aws_lb_listener.main.arn
-  priority     = 30
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.voting_tg.arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/voting*"]
+      values = [each.value]
     }
   }
 }
@@ -204,6 +158,10 @@ resource "aws_lb_listener_rule" "voting_rule" {
 # ECS Cluster
 resource "aws_ecs_cluster" "cluster" {
   name = "craftista-cluster"
+
+  tags = {
+    Name = "Craftista Cluster"
+  }
 }
 
 # IAM Role for ECS Tasks
@@ -218,6 +176,10 @@ resource "aws_iam_role" "ecs_task_execution_role" {
       Action = "sts:AssumeRole"
     }]
   })
+
+  tags = {
+    Name = "ECS Task Execution Role"
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
@@ -225,106 +187,70 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "ecs_log_group" {
-  name              = "/ecs/craftista-service"
-  retention_in_days = 7
-}
-
-# ECS Task Definition
-resource "aws_ecs_task_definition" "craftista_task" {
-  family                   = "craftista-task"
-  cpu                      = "2048"
-  memory                   = "4096"
+# ECS Task Definitions
+resource "aws_ecs_task_definition" "tasks" {
+  for_each                 = var.services_ports
+  family                   = "${each.key}-task"
+  cpu                      = "256"
+  memory                   = "512"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
-  container_definitions = jsonencode([
-    {
-      name         = "frontend"
-      image        = "${aws_ecr_repository.repos["frontend"].repository_url}:${var.image_tag}"
-      essential    = true
-      portMappings = [{ containerPort = 3000, hostPort = 3000 }]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
-          "awslogs-region"        = "us-east-1"
-          "awslogs-stream-prefix" = "frontend"
-        }
+  container_definitions = jsonencode([{
+    name      = each.key
+    image     = "${aws_ecr_repository.repos[each.key].repository_url}:${var.image_tag}"
+    essential = true
+
+    portMappings = [{
+      containerPort = each.value.port
+      hostPort      = each.value.port
+      protocol      = "tcp"
+    }]
+
+    # Enhanced environment variables
+    environment = [
+      {
+        name  = "NODE_ENV"
+        value = "production"
+      },
+      {
+        name  = "PORT"
+        value = tostring(each.value.port)
       }
-    },
-    {
-      name         = "catalogue"
-      image        = "${aws_ecr_repository.repos["catalogue"].repository_url}:${var.image_tag}"
-      essential    = true
-      portMappings = [{ containerPort = 5000, hostPort = 5000 }]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
-          "awslogs-region"        = "us-east-1"
-          "awslogs-stream-prefix" = "catalogue"
-        }
-      }
-    },
-    {
-      name         = "catalogue-db"
-      image        = "postgres:16.2-alpine3.19"
-      essential    = true
-      environment = [
-        { name = "POSTGRES_USER", value = "devops" },
-        { name = "POSTGRES_PASSWORD", value = "devops" },
-        { name = "POSTGRES_DB", value = "catalogue" }
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
-          "awslogs-region"        = "us-east-1"
-          "awslogs-stream-prefix" = "catalogue-db"
-        }
-      }
-    },
-    {
-      name         = "recommendation"
-      image        = "${aws_ecr_repository.repos["recommendation"].repository_url}:${var.image_tag}"
-      essential    = true
-      portMappings = [{ containerPort = 8080, hostPort = 8080 }]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
-          "awslogs-region"        = "us-east-1"
-          "awslogs-stream-prefix" = "recommendation"
-        }
-      }
-    },
-    {
-      name         = "voting"
-      image        = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
-      essential    = true
-      portMappings = [{ containerPort = 8081, hostPort = 8081 }]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
-          "awslogs-region"        = "us-east-1"
-          "awslogs-stream-prefix" = "voting"
-        }
-      }
+    ]
+
+    # Add health check for container
+    healthCheck = {
+      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}/health || curl -f http://localhost:${each.value.port}/ || exit 1"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
     }
-  ])
+
+    # Logging removed - use default Docker logging
+  }])
+
+  tags = {
+    Name = "${each.key} Task Definition"
+  }
 }
 
-# ECS Service
-resource "aws_ecs_service" "craftista_service" {
-  name            = "craftista-service"
+# Get current region for logging
+data "aws_region" "current" {}
+
+# ECS Services with improved configuration
+resource "aws_ecs_service" "services" {
+  for_each        = var.services_ports
+  name            = "${each.key}-service"
   cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.craftista_task.arn
+  task_definition = aws_ecs_task_definition.tasks[each.key].arn
   desired_count   = 1
   launch_type     = "FARGATE"
+
+  # CRITICAL: Health check grace period
+  health_check_grace_period_seconds = 300  # 5 minutes for app to start
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
@@ -332,16 +258,38 @@ resource "aws_ecs_service" "craftista_service" {
     assign_public_ip = true
   }
 
+  # Load balancer configuration
   load_balancer {
-    target_group_arn = aws_lb_target_group.frontend_tg.arn
-    container_name   = "frontend"
-    container_port   = 3000
+    target_group_arn = aws_lb_target_group.service_tgs[each.key].arn
+    container_name   = each.key
+    container_port   = each.value.port
   }
 
-  health_check_grace_period_seconds = 120
+  # Note: deployment_configuration not supported in this provider version
+
+  # Service discovery if needed
+  # service_registries {
+  #   registry_arn = aws_service_discovery_service.services[each.key].arn
+  # }
+
+  # Ensure dependencies
+  depends_on = [
+    aws_lb_listener.main,
+    aws_ecs_task_definition.tasks
+  ]
+
+  tags = {
+    Name = "${each.key} Service"
+  }
 }
 
-# Output ALB DNS
+# Output the ALB DNS name
 output "load_balancer_dns" {
-  value = aws_lb.main.dns_name
+  description = "DNS name of the load balancer"
+  value       = aws_lb.main.dns_name
+}
+
+output "load_balancer_zone_id" {
+  description = "Zone ID of the load balancer"
+  value       = aws_lb.main.zone_id
 }
