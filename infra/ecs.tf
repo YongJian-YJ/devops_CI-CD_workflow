@@ -78,11 +78,11 @@ resource "aws_lb_target_group" "frontend_tg" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 10
-    timeout             = 5    # <- must be less than interval
-    interval            = 30   # check every 30 seconds
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
     path                = "/"
-    matcher             = "200,404"
+    matcher             = "200"  # Remove 404
     protocol            = "HTTP"
   }
 }
