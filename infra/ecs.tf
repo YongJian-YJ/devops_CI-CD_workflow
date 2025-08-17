@@ -123,7 +123,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Single ECS Task Definition for all services
+# Single ECS Task Definition for all services with CloudWatch logging
 resource "aws_ecs_task_definition" "craftista_task" {
   family                   = "craftista-task"
   cpu                      = "2048"
@@ -139,6 +139,14 @@ resource "aws_ecs_task_definition" "craftista_task" {
       essential = true
       portMappings = [{ containerPort = 3000, protocol = "tcp" }]
       environment  = [{ name = "PORT", value = "3000" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "frontend"
+        }
+      }
     },
     {
       name      = "catalogue"
@@ -146,6 +154,14 @@ resource "aws_ecs_task_definition" "craftista_task" {
       essential = true
       portMappings = [{ containerPort = 5000, protocol = "tcp" }]
       environment  = [{ name = "PORT", value = "5000" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "catalogue"
+        }
+      }
     },
     {
       name      = "catalogue-db"
@@ -156,21 +172,46 @@ resource "aws_ecs_task_definition" "craftista_task" {
         { name = "POSTGRES_PASSWORD", value = "devops" },
         { name = "POSTGRES_DB", value = "catalogue" }
       ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "catalogue-db"
+        }
+      }
     },
     {
       name      = "recommendation"
       image     = "${aws_ecr_repository.repos["recommendation"].repository_url}:${var.image_tag}"
       essential = true
       portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "recommendation"
+        }
+      }
     },
     {
       name      = "voting"
       image     = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
       essential = true
       portMappings = [{ containerPort = 8081, protocol = "tcp" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "voting"
+        }
+      }
     }
   ])
 }
+
 
 # Single ECS Service
 resource "aws_ecs_service" "craftista_service" {
