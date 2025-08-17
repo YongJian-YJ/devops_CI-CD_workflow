@@ -229,16 +229,7 @@ resource "aws_ecs_task_definition" "tasks" {
       startPeriod = 60
     }
 
-    # Basic logging to CloudWatch (minimal)
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        "awslogs-group"         = "/ecs/${each.key}"
-        "awslogs-region"        = "us-east-1"
-        "awslogs-stream-prefix" = "ecs"
-        "awslogs-create-group"  = "true"
-      }
-    }
+    # Logging removed - use default Docker logging
   }])
 
   tags = {
