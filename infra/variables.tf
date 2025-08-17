@@ -1,5 +1,4 @@
-# infra/variables.tf - Enhanced version
-
+# infra/variables.tf - Enhanced version with corrected ports
 variable "region" {
   description = "AWS region"
   type        = string
@@ -24,16 +23,16 @@ variable "services_ports" {
   }))
   default = {
     frontend = {
-      port = 3000
+      port = 3000  # From docker-compose: 80:3000
     }
     catalogue = {
-      port = 5000
+      port = 5000  # From docker-compose: 5000:5000
     }
     recommendation = {
-      port = 8080
+      port = 8080  # From docker-compose: 8080:8080
     }
     voting = {
-      port = 8081
+      port = 8080  # From docker-compose: 8081:8080 (container port is 8080)
     }
   }
 }
