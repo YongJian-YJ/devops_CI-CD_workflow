@@ -234,7 +234,7 @@ resource "aws_ecs_task_definition" "tasks" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = "/ecs/${each.key}"
-        "awslogs-region"        = data.aws_region.current.name
+        "awslogs-region"        = "us-east-1"
         "awslogs-stream-prefix" = "ecs"
         "awslogs-create-group"  = "true"
       }
@@ -274,12 +274,8 @@ resource "aws_ecs_service" "services" {
     container_port   = each.value.port
   }
 
-  # Deployment configuration
+  # Deployment configuration - simplified
   deployment_configuration {
-    deployment_circuit_breaker {
-      enable   = true
-      rollback = true
-    }
     maximum_percent         = 200
     minimum_healthy_percent = 50
   }
