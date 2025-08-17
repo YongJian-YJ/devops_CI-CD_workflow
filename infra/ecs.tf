@@ -274,11 +274,7 @@ resource "aws_ecs_service" "services" {
     container_port   = each.value.port
   }
 
-  # Deployment configuration - simplified
-  deployment_configuration {
-    maximum_percent         = 200
-    minimum_healthy_percent = 50
-  }
+  # Note: deployment_configuration not supported in this provider version
 
   # Service discovery if needed
   # service_registries {
