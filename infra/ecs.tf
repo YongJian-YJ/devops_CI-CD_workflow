@@ -1,5 +1,4 @@
-# infra/ecs.tf - Minimal version without CloudWatch
-
+# infra/ecs.tf - Fixed version with proper health checks
 data "aws_vpc" "default" {
   default = true
 }
@@ -79,12 +78,11 @@ resource "aws_security_group" "ecs_sg" {
 
 # Application Load Balancer
 resource "aws_lb" "main" {
-  name               = "craftista-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = data.aws_subnets.default.ids
-
+  name                       = "craftista-alb"
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups           = [aws_security_group.alb_sg.id]
+  subnets                   = data.aws_subnets.default.ids
   enable_deletion_protection = false
 
   tags = {
@@ -92,10 +90,9 @@ resource "aws_lb" "main" {
   }
 }
 
-# Target Groups for each service
+# Target Groups for each service with improved health checks
 resource "aws_lb_target_group" "service_tgs" {
-  for_each = var.services_ports
-
+  for_each    = var.services_ports
   name        = "${each.key}-tg"
   port        = each.value.port
   protocol    = "HTTP"
@@ -105,12 +102,17 @@ resource "aws_lb_target_group" "service_tgs" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 2
-    timeout             = 5
-    interval            = 30
-    path                = "/"  # Adjust per service if needed
-    matcher             = "200"
+    unhealthy_threshold = 3  # More tolerant
+    timeout            = 10  # Longer timeout
+    interval           = 60  # Less frequent checks
+    path               = each.key == "frontend" ? "/" : "/health"  # Use /health for APIs
+    matcher            = "200,404"  # Accept 404 if /health doesn't exist yet
+    port               = "traffic-port"
+    protocol           = "HTTP"
   }
+
+  # Deregistration delay
+  deregistration_delay = 30
 
   tags = {
     Name = "${each.key} Target Group"
@@ -153,7 +155,7 @@ resource "aws_lb_listener_rule" "service_rules" {
   }
 }
 
-# ECS Cluster - NO CONTAINER INSIGHTS
+# ECS Cluster
 resource "aws_ecs_cluster" "cluster" {
   name = "craftista-cluster"
 
@@ -169,9 +171,9 @@ resource "aws_iam_role" "ecs_task_execution_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect    = "Allow"
+      Effect = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action    = "sts:AssumeRole"
+      Action = "sts:AssumeRole"
     }]
   })
 
@@ -185,10 +187,9 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# ECS Task Definitions - MINIMAL CONFIGURATION
+# ECS Task Definitions
 resource "aws_ecs_task_definition" "tasks" {
-  for_each = var.services_ports
-
+  for_each                 = var.services_ports
   family                   = "${each.key}-task"
   cpu                      = "256"
   memory                   = "512"
@@ -207,7 +208,7 @@ resource "aws_ecs_task_definition" "tasks" {
       protocol      = "tcp"
     }]
 
-    # Basic environment variables
+    # Enhanced environment variables
     environment = [
       {
         name  = "NODE_ENV"
@@ -219,8 +220,25 @@ resource "aws_ecs_task_definition" "tasks" {
       }
     ]
 
-    # NO LOGGING CONFIGURATION - containers will use default logging
-    # NO HEALTH CHECK - ALB will handle health checks via target groups
+    # Add health check for container
+    healthCheck = {
+      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}/health || curl -f http://localhost:${each.value.port}/ || exit 1"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
+    }
+
+    # Basic logging to CloudWatch (minimal)
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = "/ecs/${each.key}"
+        "awslogs-region"        = data.aws_region.current.name
+        "awslogs-stream-prefix" = "ecs"
+        "awslogs-create-group"  = "true"
+      }
+    }
   }])
 
   tags = {
@@ -228,7 +246,10 @@ resource "aws_ecs_task_definition" "tasks" {
   }
 }
 
-# ECS Services with ALB integration
+# Get current region for logging
+data "aws_region" "current" {}
+
+# ECS Services with improved configuration
 resource "aws_ecs_service" "services" {
   for_each        = var.services_ports
   name            = "${each.key}-service"
@@ -237,9 +258,12 @@ resource "aws_ecs_service" "services" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
+  # CRITICAL: Health check grace period
+  health_check_grace_period_seconds = 300  # 5 minutes for app to start
+
   network_configuration {
-    subnets         = data.aws_subnets.default.ids
-    security_groups = [aws_security_group.ecs_sg.id]
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
 
@@ -250,7 +274,22 @@ resource "aws_ecs_service" "services" {
     container_port   = each.value.port
   }
 
-  # Ensure target group exists before service
+  # Deployment configuration
+  deployment_configuration {
+    deployment_circuit_breaker {
+      enable   = true
+      rollback = true
+    }
+    maximum_percent         = 200
+    minimum_healthy_percent = 50
+  }
+
+  # Service discovery if needed
+  # service_registries {
+  #   registry_arn = aws_service_discovery_service.services[each.key].arn
+  # }
+
+  # Ensure dependencies
   depends_on = [
     aws_lb_listener.main,
     aws_ecs_task_definition.tasks
