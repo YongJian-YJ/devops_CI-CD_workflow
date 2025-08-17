@@ -205,7 +205,10 @@ resource "aws_ecs_task_definition" "craftista_task" {
       name      = "voting"
       image     = "${aws_ecr_repository.repos["voting"].repository_url}:${var.image_tag}"
       essential = true
-      portMappings = [{ containerPort = 8081, protocol = "tcp" }]
+      portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+      environment = [
+        { name = "SERVER_PORT", value = "8080" }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
