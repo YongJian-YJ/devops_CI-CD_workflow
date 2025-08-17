@@ -2,7 +2,7 @@
 resource "aws_ecr_repository" "repos" {
   for_each             = toset(var.services)
   name                 = each.value
-  force_delete         = true
+  # force_delete         = true
   image_tag_mutability = "MUTABLE"
 }
 
