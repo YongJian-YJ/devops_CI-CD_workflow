@@ -82,7 +82,7 @@ resource "aws_lb_target_group" "frontend_tg" {
     timeout             = 5
     interval            = 30
     path                = "/"
-    matcher             = "200"  # Remove 404
+    matcher             = "200"
     protocol            = "HTTP"
   }
 }
@@ -123,7 +123,13 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Single ECS Task Definition for all services with CloudWatch logging
+# CloudWatch Log Group for ECS
+resource "aws_cloudwatch_log_group" "ecs_log_group" {
+  name              = "/ecs/craftista-service"
+  retention_in_days = 7
+}
+
+# ECS Task Definition with CloudWatch logging
 resource "aws_ecs_task_definition" "craftista_task" {
   family                   = "craftista-task"
   cpu                      = "2048"
@@ -142,7 +148,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
           "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "frontend"
         }
@@ -157,7 +163,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
           "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "catalogue"
         }
@@ -175,7 +181,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
           "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "catalogue-db"
         }
@@ -189,7 +195,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
           "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "recommendation"
         }
@@ -203,7 +209,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/craftista-service"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_log_group.name
           "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "voting"
         }
@@ -212,8 +218,7 @@ resource "aws_ecs_task_definition" "craftista_task" {
   ])
 }
 
-
-# Single ECS Service
+# ECS Service
 resource "aws_ecs_service" "craftista_service" {
   name            = "craftista-service"
   cluster         = aws_ecs_cluster.cluster.id
