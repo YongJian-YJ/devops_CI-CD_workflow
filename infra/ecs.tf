@@ -126,8 +126,8 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
 # Single ECS Task Definition for all services
 resource "aws_ecs_task_definition" "craftista_task" {
   family                   = "craftista-task"
-  cpu                      = "1024"
-  memory                   = "2048"
+  cpu                      = "2048"
+  memory                   = "4096"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
