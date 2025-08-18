@@ -1,4 +1,4 @@
-# infra/ecs.tf - Corrected ECS + ALB setup with per-service health checks
+# infra/ecs.tf - ECS + ALB + Service Discovery setup
 
 data "aws_vpc" "default" {
   default = true
@@ -165,6 +165,15 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 # ----------------------------
+# Service Discovery Namespace
+# ----------------------------
+resource "aws_service_discovery_private_dns_namespace" "namespace" {
+  name        = "craftista.local"
+  vpc         = data.aws_vpc.default.id
+  description = "Private namespace for ECS services"
+}
+
+# ----------------------------
 # IAM Role for ECS Tasks
 # ----------------------------
 resource "aws_iam_role" "ecs_task_execution_role" {
@@ -215,7 +224,7 @@ resource "aws_ecs_task_definition" "tasks" {
     ]
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, '/')} || exit 1"]
+      command     = ["CMD-SHELL", "curl -f http://localhost:" + tostring(each.value.port) + lookup(local.health_check_paths, each.key, "/") + " || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -227,8 +236,25 @@ resource "aws_ecs_task_definition" "tasks" {
 }
 
 # ----------------------------
-# ECS Services
+# ECS Services with Service Discovery
 # ----------------------------
+resource "aws_service_discovery_service" "sd_services" {
+  for_each = var.services_ports
+  name     = each.key
+  namespace_id = aws_service_discovery_private_dns_namespace.namespace.id
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.namespace.id
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+    routing_policy = "MULTIVALUE"
+  }
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+}
+
 resource "aws_ecs_service" "services" {
   for_each        = var.services_ports
   name            = "${each.key}-service"
@@ -249,6 +275,10 @@ resource "aws_ecs_service" "services" {
     target_group_arn = aws_lb_target_group.service_tgs[each.key].arn
     container_name   = each.key
     container_port   = each.value.port
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.sd_services[each.key].arn
   }
 
   depends_on = [
