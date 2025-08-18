@@ -1,4 +1,4 @@
-# infra/ecs.tf - Fixed with correct per-service health checks
+# infra/ecs.tf - Corrected ECS + ALB setup with per-service health checks
 
 data "aws_vpc" "default" {
   default = true
@@ -48,6 +48,7 @@ resource "aws_security_group" "ecs_sg" {
   description = "Security group for ECS services"
   vpc_id      = data.aws_vpc.default.id
 
+  # Allow traffic from ALB
   ingress {
     from_port       = 0
     to_port         = 65535
@@ -55,6 +56,7 @@ resource "aws_security_group" "ecs_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
+  # Allow inter-service communication
   ingress {
     from_port = 0
     to_port   = 65535
@@ -81,14 +83,13 @@ resource "aws_lb" "main" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
   subnets            = data.aws_subnets.default.ids
-
   enable_deletion_protection = false
 
   tags = { Name = "Craftista ALB" }
 }
 
 # ----------------------------
-# Target Groups with correct health checks
+# Target Groups with per-service health checks
 # ----------------------------
 locals {
   health_check_paths = {
@@ -118,8 +119,7 @@ resource "aws_lb_target_group" "service_tgs" {
   }
 
   deregistration_delay = 30
-
-  tags = { Name = "${each.key} Target Group" }
+  tags                 = { Name = "${each.key} Target Group" }
 }
 
 # ----------------------------
@@ -215,7 +215,7 @@ resource "aws_ecs_task_definition" "tasks" {
     ]
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
+      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, '/')} || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
