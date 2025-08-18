@@ -1,4 +1,5 @@
-# infra/ecs.tf - Fixed version with proper health checks
+# infra/ecs.tf - Fixed with correct per-service health checks
+
 data "aws_vpc" "default" {
   default = true
 }
@@ -10,7 +11,9 @@ data "aws_subnets" "default" {
   }
 }
 
-# Security Group for ALB
+# ----------------------------
+# Security Groups
+# ----------------------------
 resource "aws_security_group" "alb_sg" {
   name        = "alb-security-group"
   description = "Security group for ALB"
@@ -37,18 +40,14 @@ resource "aws_security_group" "alb_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "ALB Security Group"
-  }
+  tags = { Name = "ALB Security Group" }
 }
 
-# Security Group for ECS Services
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-security-group"
   description = "Security group for ECS services"
   vpc_id      = data.aws_vpc.default.id
 
-  # Allow traffic from ALB
   ingress {
     from_port       = 0
     to_port         = 65535
@@ -56,7 +55,6 @@ resource "aws_security_group" "ecs_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
-  # Allow inter-service communication
   ingress {
     from_port = 0
     to_port   = 65535
@@ -71,26 +69,36 @@ resource "aws_security_group" "ecs_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "ECS Security Group"
-  }
+  tags = { Name = "ECS Security Group" }
 }
 
+# ----------------------------
 # Application Load Balancer
+# ----------------------------
 resource "aws_lb" "main" {
-  name                       = "craftista-alb"
-  internal                   = false
-  load_balancer_type         = "application"
-  security_groups           = [aws_security_group.alb_sg.id]
-  subnets                   = data.aws_subnets.default.ids
+  name               = "craftista-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = data.aws_subnets.default.ids
+
   enable_deletion_protection = false
 
-  tags = {
-    Name = "Craftista ALB"
+  tags = { Name = "Craftista ALB" }
+}
+
+# ----------------------------
+# Target Groups with correct health checks
+# ----------------------------
+locals {
+  health_check_paths = {
+    frontend       = "/"
+    catalogue      = "/api/products"
+    recommendation = "/api/recommendation-status"
+    voting         = "/api/origamis"
   }
 }
 
-# Target Groups for each service with improved health checks
 resource "aws_lb_target_group" "service_tgs" {
   for_each    = var.services_ports
   name        = "${each.key}-tg"
@@ -102,42 +110,37 @@ resource "aws_lb_target_group" "service_tgs" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 10  # Very tolerant
-    timeout            = 30   # Long timeout
-    interval           = 300  # Check every 5 minutes
-    path               = "/"  # Use root path for all
-    matcher            = "200,404,500"  # Accept almost any response
-    port               = "traffic-port"
-    protocol           = "HTTP"
+    unhealthy_threshold = 5
+    timeout             = 10
+    interval            = 30
+    path                = lookup(local.health_check_paths, each.key, "/")
+    matcher             = "200-399"
   }
 
-  # Deregistration delay
   deregistration_delay = 30
 
-  tags = {
-    Name = "${each.key} Target Group"
-  }
+  tags = { Name = "${each.key} Target Group" }
 }
 
-# ALB Listener
+# ----------------------------
+# ALB Listener & Routing Rules
+# ----------------------------
 resource "aws_lb_listener" "main" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
 
-  # Default action - forward to frontend
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.service_tgs["frontend"].arn
   }
 }
 
-# ALB Listener Rules for path-based routing
 resource "aws_lb_listener_rule" "service_rules" {
   for_each = {
-    catalogue      = "/api/catalogue*"
+    catalogue      = "/api/products*"
     recommendation = "/api/recommendation*"
-    voting         = "/api/voting*"
+    voting         = "/api/origamis*"
   }
 
   listener_arn = aws_lb_listener.main.arn
@@ -149,37 +152,34 @@ resource "aws_lb_listener_rule" "service_rules" {
   }
 
   condition {
-    path_pattern {
-      values = [each.value]
-    }
+    path_pattern { values = [each.value] }
   }
 }
 
+# ----------------------------
 # ECS Cluster
+# ----------------------------
 resource "aws_ecs_cluster" "cluster" {
   name = "craftista-cluster"
-
-  tags = {
-    Name = "Craftista Cluster"
-  }
+  tags = { Name = "Craftista Cluster" }
 }
 
+# ----------------------------
 # IAM Role for ECS Tasks
+# ----------------------------
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "craftista-ecs-task-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 
-  tags = {
-    Name = "ECS Task Execution Role"
-  }
+  tags = { Name = "ECS Task Execution Role" }
 }
 
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
@@ -187,7 +187,9 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# ----------------------------
 # ECS Task Definitions
+# ----------------------------
 resource "aws_ecs_task_definition" "tasks" {
   for_each                 = var.services_ports
   family                   = "${each.key}-task"
@@ -208,39 +210,25 @@ resource "aws_ecs_task_definition" "tasks" {
       protocol      = "tcp"
     }]
 
-    # Enhanced environment variables
     environment = [
-      {
-        name  = "NODE_ENV"
-        value = "production"
-      },
-      {
-        name  = "PORT"
-        value = tostring(each.value.port)
-      }
+      { name = "PORT", value = tostring(each.value.port) }
     ]
 
-    # Add health check for container
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}/health || curl -f http://localhost:${each.value.port}/ || exit 1"]
+      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
       startPeriod = 60
     }
-
-    # Logging removed - use default Docker logging
   }])
 
-  tags = {
-    Name = "${each.key} Task Definition"
-  }
+  tags = { Name = "${each.key} Task Definition" }
 }
 
-# Get current region for logging
-data "aws_region" "current" {}
-
-# ECS Services with improved configuration
+# ----------------------------
+# ECS Services
+# ----------------------------
 resource "aws_ecs_service" "services" {
   for_each        = var.services_ports
   name            = "${each.key}-service"
@@ -249,8 +237,7 @@ resource "aws_ecs_service" "services" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
-  # CRITICAL: Health check grace period
-  health_check_grace_period_seconds = 300  # 5 minutes for app to start
+  health_check_grace_period_seconds = 120
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
@@ -258,38 +245,29 @@ resource "aws_ecs_service" "services" {
     assign_public_ip = true
   }
 
-  # Load balancer configuration
   load_balancer {
     target_group_arn = aws_lb_target_group.service_tgs[each.key].arn
     container_name   = each.key
     container_port   = each.value.port
   }
 
-  # Note: deployment_configuration not supported in this provider version
-
-  # Service discovery if needed
-  # service_registries {
-  #   registry_arn = aws_service_discovery_service.services[each.key].arn
-  # }
-
-  # Ensure dependencies
   depends_on = [
     aws_lb_listener.main,
     aws_ecs_task_definition.tasks
   ]
 
-  tags = {
-    Name = "${each.key} Service"
-  }
+  tags = { Name = "${each.key} Service" }
 }
 
-# Output the ALB DNS name
+# ----------------------------
+# Outputs
+# ----------------------------
 output "load_balancer_dns" {
-  description = "DNS name of the load balancer"
   value       = aws_lb.main.dns_name
+  description = "DNS name of the ALB"
 }
 
 output "load_balancer_zone_id" {
-  description = "Zone ID of the load balancer"
   value       = aws_lb.main.zone_id
+  description = "Zone ID of the ALB"
 }
