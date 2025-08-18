@@ -244,7 +244,10 @@ resource "aws_ecs_task_definition" "tasks" {
 
     # ✅ Health check mimicking Docker Compose
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:" + tostring(each.value.port) + lookup(local.health_check_paths, each.key, "/") + " || curl -f http://localhost:" + tostring(each.value.port) + " || exit 1"]
+      command = [
+        "CMD-SHELL",
+        "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, '/')} || curl -f http://localhost:${each.value.port}/ || exit 1"
+      ]
       interval    = 30
       timeout     = 5
       retries     = 3
