@@ -224,7 +224,7 @@ resource "aws_ecs_task_definition" "tasks" {
     ]
 
     healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:" + tostring(each.value.port) + lookup(local.health_check_paths, each.key, "/") + " || exit 1"]
+      command = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -251,7 +251,7 @@ resource "aws_service_discovery_service" "sd_services" {
     routing_policy = "MULTIVALUE"
   }
   health_check_custom_config {
-    failure_threshold = 1
+    
   }
 }
 
