@@ -139,15 +139,15 @@ resource "aws_lb_target_group" "service_tgs" {
   vpc_id      = data.aws_vpc.default.id
   target_type = "ip"
 
-  health_check {
-    enabled             = true
-    healthy_threshold   = 2
-    unhealthy_threshold = 5
-    timeout             = 10
-    interval            = 30
-    path                = lookup(local.health_check_paths, each.key, "/")
-    matcher             = "200-399"
-  }
+  # health_check {
+  #   enabled             = true
+  #   healthy_threshold   = 2
+  #   unhealthy_threshold = 5
+  #   timeout             = 10
+  #   interval            = 30
+  #   path                = lookup(local.health_check_paths, each.key, "/")
+  #   matcher             = "200-399"
+  # }
 
   deregistration_delay = 30
   tags                 = { Name = "${each.key} Target Group" }
@@ -243,13 +243,13 @@ resource "aws_ecs_task_definition" "tasks" {
       { name = "PORT", value = tostring(each.value.port) }
     ]
 
-    healthCheck = {
-      command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
-      interval    = 30
-      timeout     = 5
-      retries     = 3
-      startPeriod = 60
-    }
+    # healthCheck = {
+    #   command     = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
+    #   interval    = 30
+    #   timeout     = 5
+    #   retries     = 3
+    #   startPeriod = 60
+    # }
   }])
 
   tags = { Name = "${each.key} Task Definition" }
@@ -266,7 +266,7 @@ resource "aws_ecs_service" "services" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
-  health_check_grace_period_seconds = 120
+  # health_check_grace_period_seconds = 120
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
