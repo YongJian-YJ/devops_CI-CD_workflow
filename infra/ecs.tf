@@ -168,7 +168,7 @@ resource "aws_ecs_cluster" "cluster" {
 # Service Discovery Namespace
 # ----------------------------
 resource "aws_service_discovery_private_dns_namespace" "namespace" {
-  name        = "craftista.local"
+  name        = "craftista-v2.local"
   vpc         = data.aws_vpc.default.id
   description = "Private namespace for ECS services"
 }
