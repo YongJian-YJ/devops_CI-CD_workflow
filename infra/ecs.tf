@@ -1,5 +1,8 @@
 # infra/ecs.tf - ECS + ALB + Service Discovery setup
 
+# ----------------------------
+# VPC & Subnets
+# ----------------------------
 data "aws_vpc" "default" {
   default = true
 }
@@ -75,7 +78,7 @@ resource "aws_security_group" "ecs_sg" {
 }
 
 # ----------------------------
-# Application Load Balancer
+# ALB
 # ----------------------------
 resource "aws_lb" "main" {
   name               = "craftista-alb"
@@ -84,12 +87,36 @@ resource "aws_lb" "main" {
   security_groups    = [aws_security_group.alb_sg.id]
   subnets            = data.aws_subnets.default.ids
   enable_deletion_protection = false
-
   tags = { Name = "Craftista ALB" }
 }
 
 # ----------------------------
-# Target Groups with per-service health checks
+# Service Discovery Namespace
+# ----------------------------
+resource "aws_service_discovery_private_dns_namespace" "namespace" {
+  name        = "craftista.local"
+  vpc         = data.aws_vpc.default.id
+  description = "Private namespace for Craftista services"
+}
+
+# ----------------------------
+# Service Discovery Services
+# ----------------------------
+resource "aws_service_discovery_service" "sd_services" {
+  for_each = var.services_ports
+  name     = each.key
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.namespace.id
+    routing_policy = "MULTIVALUE"
+    dns_records {
+      type = "A"
+      ttl  = 10
+    }
+  }
+}
+
+# ----------------------------
+# Health Check Paths
 # ----------------------------
 locals {
   health_check_paths = {
@@ -100,6 +127,9 @@ locals {
   }
 }
 
+# ----------------------------
+# Target Groups
+# ----------------------------
 resource "aws_lb_target_group" "service_tgs" {
   for_each    = var.services_ports
   name        = "${each.key}-tg"
@@ -123,11 +153,11 @@ resource "aws_lb_target_group" "service_tgs" {
 }
 
 # ----------------------------
-# ALB Listener & Routing Rules
+# ALB Listener & Rules
 # ----------------------------
 resource "aws_lb_listener" "main" {
   load_balancer_arn = aws_lb.main.arn
-  port              = "80"
+  port              = 80
   protocol          = "HTTP"
 
   default_action {
@@ -165,20 +195,10 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 # ----------------------------
-# Service Discovery Namespace
-# ----------------------------
-resource "aws_service_discovery_private_dns_namespace" "namespace" {
-  name        = "craftista-v2.local"
-  vpc         = data.aws_vpc.default.id
-  description = "Private namespace for ECS services"
-}
-
-# ----------------------------
-# IAM Role for ECS Tasks
+# IAM Role
 # ----------------------------
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "craftista-ecs-task-execution-role"
-
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
@@ -187,7 +207,6 @@ resource "aws_iam_role" "ecs_task_execution_role" {
       Action    = "sts:AssumeRole"
     }]
   })
-
   tags = { Name = "ECS Task Execution Role" }
 }
 
@@ -223,8 +242,9 @@ resource "aws_ecs_task_definition" "tasks" {
       { name = "PORT", value = tostring(each.value.port) }
     ]
 
+    # ✅ Health check mimicking Docker Compose
     healthCheck = {
-      command = ["CMD-SHELL", "curl -f http://localhost:${each.value.port}${lookup(local.health_check_paths, each.key, "/")} || exit 1"]
+      command     = ["CMD-SHELL", "curl -f http://localhost:" + tostring(each.value.port) + lookup(local.health_check_paths, each.key, "/") + " || curl -f http://localhost:" + tostring(each.value.port) + " || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3
@@ -236,25 +256,8 @@ resource "aws_ecs_task_definition" "tasks" {
 }
 
 # ----------------------------
-# ECS Services with Service Discovery
+# ECS Services
 # ----------------------------
-resource "aws_service_discovery_service" "sd_services" {
-  for_each = var.services_ports
-  name     = each.key
-  namespace_id = aws_service_discovery_private_dns_namespace.namespace.id
-  dns_config {
-    namespace_id = aws_service_discovery_private_dns_namespace.namespace.id
-    dns_records {
-      ttl  = 10
-      type = "A"
-    }
-    routing_policy = "MULTIVALUE"
-  }
-  health_check_custom_config {
-    
-  }
-}
-
 resource "aws_ecs_service" "services" {
   for_each        = var.services_ports
   name            = "${each.key}-service"
@@ -271,14 +274,15 @@ resource "aws_ecs_service" "services" {
     assign_public_ip = true
   }
 
+  # ✅ Service Discovery registration
+  service_registries {
+    registry_arn = aws_service_discovery_service.sd_services[each.key].arn
+  }
+
   load_balancer {
     target_group_arn = aws_lb_target_group.service_tgs[each.key].arn
     container_name   = each.key
     container_port   = each.value.port
-  }
-
-  service_registries {
-    registry_arn = aws_service_discovery_service.sd_services[each.key].arn
   }
 
   depends_on = [
@@ -300,4 +304,9 @@ output "load_balancer_dns" {
 output "load_balancer_zone_id" {
   value       = aws_lb.main.zone_id
   description = "Zone ID of the ALB"
+}
+
+output "service_discovery_namespace" {
+  value       = aws_service_discovery_private_dns_namespace.namespace.name
+  description = "Private DNS namespace for ECS services"
 }
