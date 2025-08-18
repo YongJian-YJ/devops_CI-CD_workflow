@@ -1,4 +1,4 @@
-# infra/ecs.tf - ECS + ALB + Service Discovery setup with safe deletion
+# infra/ecs.tf - ECS + ALB + Service Discovery setup
 
 # ----------------------------
 # VPC & Subnets
@@ -51,6 +51,7 @@ resource "aws_security_group" "ecs_sg" {
   description = "Security group for ECS services"
   vpc_id      = data.aws_vpc.default.id
 
+  # Allow traffic from ALB
   ingress {
     from_port       = 0
     to_port         = 65535
@@ -58,6 +59,7 @@ resource "aws_security_group" "ecs_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
+  # Allow inter-service communication
   ingress {
     from_port = 0
     to_port   = 65535
@@ -95,6 +97,23 @@ resource "aws_service_discovery_private_dns_namespace" "namespace" {
   name        = "craftista.local"
   vpc         = data.aws_vpc.default.id
   description = "Private namespace for Craftista services"
+}
+
+# ----------------------------
+# Service Discovery Services
+# ----------------------------
+resource "aws_service_discovery_service" "sd_services" {
+  for_each = var.services_ports
+  name     = each.key
+
+  dns_config {
+    namespace_id   = aws_service_discovery_private_dns_namespace.namespace.id
+    routing_policy = "MULTIVALUE"
+    dns_records {
+      type = "A"
+      ttl  = 10
+    }
+  }
 }
 
 # ----------------------------
@@ -271,31 +290,6 @@ resource "aws_ecs_service" "services" {
   ]
 
   tags = { Name = "${each.key} Service" }
-}
-
-# ----------------------------
-# Stop ECS Tasks Before Deleting Service Discovery (Prevention of ResourceInUse)
-# ----------------------------
-resource "null_resource" "stop_ecs_tasks_before_sd_delete" {
-  for_each = var.services_ports
-
-  triggers = {
-    service_name = aws_ecs_service.services[each.key].name
-  }
-
-  provisioner "local-exec" {
-    command = <<EOT
-aws ecs update-service \
-  --cluster ${aws_ecs_cluster.cluster.name} \
-  --service ${aws_ecs_service.services[each.key].name} \
-  --desired-count 0
-EOT
-  }
-
-  # Make sure this runs before attempting to destroy Service Discovery
-  depends_on = [
-    aws_ecs_service.services
-  ]
 }
 
 # ----------------------------
