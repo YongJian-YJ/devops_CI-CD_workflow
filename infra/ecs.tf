@@ -56,7 +56,8 @@ resource "aws_security_group" "ecs_sg" {
     from_port       = 0
     to_port         = 65535
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
+    # “Allow TCP traffic on all ports (0–65535), but only if it comes from the ALB security group.”
+    security_groups = [aws_security_group.alb_sg.id] 
   }
 
   # Allow inter-service communication

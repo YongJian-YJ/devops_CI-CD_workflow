@@ -79,6 +79,7 @@ pipeline {
                     '''
                 }
             }
+            
         }
 
         // echo "$SERVICES" | tr ',' '\\n' | while read service; do: break the services by comma and separate them into new lines each and for each of the service, loop them using the command below
